@@ -1,0 +1,1 @@
+devenv build\win32_poker.exe
