@@ -91,6 +91,7 @@ struct game_state {
 	coordinate text_pos;
 	hand_status status;
 	hand_rank ranks[2];
+	int flags;
 };
 
 /*
@@ -105,12 +106,14 @@ struct game_state {
 	card board[5];
 };*/
 
+// FLAGS
+int HAND_INITIALIZED = 1 << 0;
+
 // GLOBALS
 win32_offscreen_buffer global_buffer;
 game_assets global_assets;
 bool should_quit = false;
 unsigned char flicker = 0;  // BOOL
-unsigned char hand_initialized = 0;
 // unsigned int frame_counter = 0;
 game_state G_STATE = {};
 
@@ -628,7 +631,7 @@ void update_and_render(game_state *G_STATE, win32_offscreen_buffer *buffer, game
 		create_deck(G_STATE->deck.cards);
 	}
 	
-	if (!hand_initialized) {
+	if (!(G_STATE->flags & HAND_INITIALIZED)) {
 		srand(time(0));
 	
 		test_hand_generator(G_STATE->hands[0].cards, G_STATE->deck.cards);
@@ -637,7 +640,7 @@ void update_and_render(game_state *G_STATE, win32_offscreen_buffer *buffer, game
 		G_STATE->ranks[0] = evaluate_hand(G_STATE->hands[0].cards);
 		debug_print_hand_rank(G_STATE->ranks[0]);
 		
-		hand_initialized = 1;
+		G_STATE->flags |= HAND_INITIALIZED;
 	}
 	
 	int x = 0;
@@ -710,10 +713,10 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l
 			display_buffer_in_window(device_context, dimension);
 			
 			// This has to be done here, unfortunately. Otherwise flickering (I think).
-			if (hand_initialized) {
+			/* if (hand_initialized) {
 				char *rank_str = stringify_hand_rank(G_STATE.ranks[0]);
 				int txt_result = TextOutA(device_context, G_STATE.text_pos.x, G_STATE.text_pos.y, rank_str, strlen(rank_str));
-			}
+			} */
 			
 			OutputDebugStringA("WM_PAINT\n");
 
@@ -730,7 +733,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l
 			OutputDebugStringA("KEY DOWN\n");
 			
 			if (w_param == VK_RETURN) {
-				hand_initialized = 0;
+				G_STATE.flags &= ~HAND_INITIALIZED;
 			}
 		}
 		break;
@@ -791,7 +794,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 				LPCSTR pszFaceName
 				); */
 			
-			HFONT font_handle = CreateFontA(0, 0, 0, 0, 0, 0, 0, 0,
+			/* HFONT font_handle = CreateFontA(0, 0, 0, 0, 0, 0, 0, 0,
 				                            DEFAULT_CHARSET, OUT_CHARACTER_PRECIS, CLIP_CHARACTER_PRECIS,
 											ANTIALIASED_QUALITY, DEFAULT_PITCH, 0);
 				
@@ -802,7 +805,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 				SendMessage(window_handle, WM_SETFONT, (WPARAM)font_handle, 1);
 			} else {
 				OutputDebugStringA("Could not create the font handle.");
-			}
+			} */
 			
 			create_deck(G_STATE.deck.cards);
 			
