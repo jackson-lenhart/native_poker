@@ -1,0 +1,7 @@
+
+
+
+
+- Make hand displayed on screen change every ~5 seconds
+- OutputDebugString hand rank only once per hand
+- Create flags field in game state for things like hand_initialized

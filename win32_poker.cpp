@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 struct win32_offscreen_buffer {
 	BITMAPINFO info;
@@ -30,8 +31,46 @@ struct bitmap_result {
 	unsigned int stride;
 };
 
+struct card_image {
+	bitmap_result bmp;
+	char path[50];
+};
+
+struct hand_rank_image {
+	bitmap_result bmp;
+};
+
 struct game_assets {
-	bitmap_result *bitmaps;
+	card_image card_images[52];
+	hand_rank_image hrank_images[10];
+};
+
+struct card {
+	int value;
+	char suit;
+	bool removed_from_deck;
+};
+
+struct hand {
+	card cards[5];
+	unsigned char folded;  // BOOL
+};
+
+struct deck_info {
+	card cards[52];
+};
+
+struct coordinate {
+	int x;
+	int y;
+};
+
+enum hand_status {
+	PreFlop,
+	Flop,
+	Turn,
+	River,
+	Showdown
 };
 
 enum hand_rank {
@@ -46,19 +85,14 @@ enum hand_rank {
 	HighCard       = 9
 };
 
-enum hand_status {
-	PreFlop,
-	Flop,
-	Turn,
-	River,
-	Showdown
+struct game_state {
+	hand hands[2];
+	deck_info deck;
+	coordinate text_pos;
+	hand_status status;
+	hand_rank ranks[2];
 };
 
-struct card {
-	int value;
-	char suit;
-	bool removed_from_deck;
-};
 /*
 struct player {
 	unsigned int stack;
@@ -71,9 +105,16 @@ struct game_state {
 	card board[5];
 };*/
 
+// GLOBALS
 win32_offscreen_buffer global_buffer;
 game_assets global_assets;
 bool should_quit = false;
+unsigned char flicker = 0;  // BOOL
+unsigned char hand_initialized = 0;
+// unsigned int frame_counter = 0;
+game_state G_STATE = {};
+
+HDC device_context;
 
 char *suits = "hdcs";
 int sorted_wheel_values[5] = { 2, 3, 4, 5, 14 };
@@ -190,6 +231,74 @@ void debug_print_hand_rank(hand_rank rank) {
 			break;
 		default:
 			OutputDebugStringA("\nInvalid hand rank.\n");
+	}
+}
+
+char* get_hand_rank_filename(hand_rank rank) {
+	switch (rank) {
+		case StraightFlush:
+			return "c:/projects/native_poker/assets/straight-flush.bmp";
+			break;
+		case Quads:
+			return "c:/projects/native_poker/assets/quads.bmp";
+			break;
+		case FullHouse:
+			return "c:/projects/native_poker/assets/full-house.bmp";
+			break;
+		case Flush:
+			return "c:/projects/native_poker/assets/flush.bmp";
+			break;
+		case Straight:
+			return "c:/projects/native_poker/assets/straight.bmp";
+			break;
+		case ThreeOfAKind:
+			return "c:/projects/native_poker/assets/three-of-a-kind.bmp";
+			break;
+		case TwoPair:
+			return "c:/projects/native_poker/assets/two-pair.bmp";
+			break;
+		case OnePair:
+			return "c:/projects/native_poker/assets/one-pair.bmp";
+			break;
+		case HighCard:
+			return "c:/projects/native_poker/assets/high-card.bmp";
+			break;
+		default:
+			return "c:/projects/native_poker/assets/invalid-hand-rank.bmp";
+	}
+}
+
+char* stringify_hand_rank(hand_rank rank) {
+	switch (rank) {
+		case StraightFlush:
+			return "StraightFlush";
+			break;
+		case Quads:
+			return "Quads";
+			break;
+		case FullHouse:
+			return "FullHouse";
+			break;
+		case Flush:
+			return "Flush";
+			break;
+		case Straight:
+			return "Straight";
+			break;
+		case ThreeOfAKind:
+			return "ThreeOfAKind";
+			break;
+		case TwoPair:
+			return "TwoPair";
+			break;
+		case OnePair:
+			return "OnePair";
+			break;
+		case HighCard:
+			return "HighCard";
+			break;
+		default:
+			return "Invalid hand rank.";
 	}
 }
 
@@ -371,6 +480,11 @@ window_dimension get_window_dimension(HWND window) {
 	result.width = client_rect.right - client_rect.left;
 	result.height = client_rect.bottom - client_rect.top;
 	
+	/* char dbug_str[50];
+	sprintf(dbug_str, "%d, %d", result.width, result.height);
+	OutputDebugStringA(dbug_str);
+	OutputDebugStringA("\n"); */
+	
 	return result;
 }
 
@@ -423,13 +537,13 @@ bitmap_result debug_load_bitmap(char* filename) {
 	return bmp_result;
 }
 
-void debug_paint_window_red() {
-	unsigned int red = 0xFF0000;
+void debug_paint_window(unsigned int color) {
+	// unsigned int red = 0xFF0000;
 	unsigned int *pixel = (unsigned int *)global_buffer.memory; 
 	
 	for (int i = 0; i < global_buffer.height; i++) {
 		for (int j = 0; j < global_buffer.width; j++) {
-			*pixel++ = red;
+			*pixel++ = color;
 		}
 	}
 }
@@ -482,15 +596,15 @@ void debug_render_bitmap(bitmap_result bmp) {
 	}
 }
 
-void render_card(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_result card_bmp) {
-	int width = card_bmp.info_header->biWidth;
-	int height = card_bmp.info_header->biHeight;
+void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_result bmp) {
+	int width = bmp.info_header->biWidth;
+	int height = bmp.info_header->biHeight;
 
 	unsigned char* dest_row = (unsigned char*)buffer->memory + (y_pos * buffer->pitch + x_pos);
 
 	// NOTE: We do this calculation on the source row because our bitmaps are bottom up,
 	// whereas our window is top-down. So we must start at the bottom of the source bitmap.
-	unsigned char* source_row = (unsigned char*)(card_bmp.pixels + ((card_bmp.stride / 4) * (height - 1)));
+	unsigned char* source_row = (unsigned char*)(bmp.pixels + ((bmp.stride / 4) * (height - 1)));
 
 	for (int y = y_pos; y < y_pos + height; y++) {
 		unsigned int* dest = (unsigned int*)dest_row;
@@ -503,34 +617,55 @@ void render_card(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_re
 		}
 
 		dest_row += buffer->pitch;
-		source_row -= card_bmp.stride;
+		source_row -= bmp.stride;
 	}
 }
 
-void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets) {
-	card deck[52];
-	create_deck(deck);
-
-	srand(time(0));
-
-	card test_hand1[5];
-	card test_hand2[5];
-	test_hand_generator(test_hand1, deck);
-	test_hand_generator(test_hand2, deck);
+void update_and_render(game_state *G_STATE, win32_offscreen_buffer *buffer, game_assets *assets, HDC device_context) {
+	// debug_paint_window(0xA83232);
+	
+	if (test_deck_empty(G_STATE->deck.cards)) {
+		create_deck(G_STATE->deck.cards);
+	}
+	
+	if (!hand_initialized) {
+		srand(time(0));
+	
+		test_hand_generator(G_STATE->hands[0].cards, G_STATE->deck.cards);
+		test_hand_generator(G_STATE->hands[1].cards, G_STATE->deck.cards);
+		
+		G_STATE->ranks[0] = evaluate_hand(G_STATE->hands[0].cards);
+		debug_print_hand_rank(G_STATE->ranks[0]);
+		
+		hand_initialized = 1;
+	}
 	
 	int x = 0;
 	int y = 0;
 	for (int i = 0; i < 5; i++) {
 		char path[50];
-		get_filename_for_card(path, test_hand1[i]);
+		get_filename_for_card(path, G_STATE->hands[0].cards[i]);
 		
-		bitmap_result bmp = debug_load_bitmap(path);
-		render_card(x, y, buffer, bmp);
-		
-		x += bmp.info_header->biWidth;
-		y += bmp.info_header->biHeight;
+		for (int j = 0; j < 52; j++) {
+			if (strcmp(global_assets.card_images[j].path, path) == 0) {
+				render_bmp(x, y, buffer, global_assets.card_images[j].bmp);
+				
+				x += global_assets.card_images[j].bmp.info_header->biWidth;
+				y += global_assets.card_images[j].bmp.info_header->biHeight;
+			}
+		}
 	}
-
+	
+	render_bmp(750, 250, buffer, global_assets.hrank_images[G_STATE->ranks[0]].bmp);
+/*	
+	if (frame_counter >= 1200) {
+		hand_initialized = 0;
+		frame_counter = 0;
+	} else {
+		frame_counter++;
+	}
+*/
+	
 	// int current_x_pos = 0;
 	// int current_y_pos = 0;
 
@@ -544,6 +679,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l
 	LRESULT result = 0;
 
 	switch (message) {
+		break;
 		case WM_SIZE: {
 			// window_dimension dim = get_window_dimension(window);
 			// resize_dib_section(&global_buffer, dim.width, dim.height);
@@ -557,12 +693,12 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l
 		break;
 
 		case WM_ACTIVATEAPP: {
-			OutputDebugStringA("WM_ACTIVATEAPP");
+			OutputDebugStringA("WM_ACTIVATEAPP\n");
 		}
 		break;
 
 		case WM_DESTROY: {
-			OutputDebugStringA("WM_DESTROY");
+			OutputDebugStringA("WM_DESTROY\n");
 		}
 		break;
 
@@ -572,45 +708,32 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l
 			
 			window_dimension dimension = get_window_dimension(window);
 			display_buffer_in_window(device_context, dimension);
+			
+			// This has to be done here, unfortunately. Otherwise flickering (I think).
+			if (hand_initialized) {
+				char *rank_str = stringify_hand_rank(G_STATE.ranks[0]);
+				int txt_result = TextOutA(device_context, G_STATE.text_pos.x, G_STATE.text_pos.y, rank_str, strlen(rank_str));
+			}
+			
+			OutputDebugStringA("WM_PAINT\n");
 
 			EndPaint(window, &paint);
 		}
 		break;
 		
-	/*
+		case WM_SETFONT: {
+			OutputDebugStringA("WM_SETFONT\n");
+		}
+		break;
+	
 		case WM_KEYDOWN: {
 			OutputDebugStringA("KEY DOWN\n");
 			
-			if (w_param == VK_LEFT) {
-				k_input.left = true;
-				// x_offset += 5;
-			}
-			
-			if (w_param == VK_RIGHT) {
-				k_input.right = true;
-				// x_offset -= 5;
-			}
-			
-			if (w_param == VK_UP) {
-				k_input.up = true;
-				// y_offset += 5;
-			}
-			
-			if (w_param == VK_DOWN) {
-				k_input.down = true;
-				// y_offset -= 5;
-			}
-			
 			if (w_param == VK_RETURN) {
-				k_input.enter = true;
-			}
-			
-			if (w_param == VK_ESCAPE) {
-				k_input.escape = true;
+				hand_initialized = 0;
 			}
 		}
 		break;
-		*/
 
 		default: {
 			result = DefWindowProc(window, message, w_param, l_param);
@@ -630,14 +753,14 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 	window_class.lpszClassName = "PokerWindowClass";
 	
 	if (RegisterClassA(&window_class)) {
-		HWND window = CreateWindowExA(0, window_class.lpszClassName, "Poker",
+		HWND window_handle = CreateWindowExA(0, window_class.lpszClassName, "Poker",
 			                          WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
 									  CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, instance, 0);
 
-		if (window) {
-			HDC device_context = GetDC(window);
+		if (window_handle) {
+			device_context = GetDC(window_handle);
 			
-			window_dimension dim = get_window_dimension(window);
+			window_dimension dim = get_window_dimension(window_handle);
 			resize_dib_section(&global_buffer, dim.width, dim.height);
 			
 			/*srand(time(0));
@@ -650,19 +773,78 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 				debug_print_hand_rank(r);
 				debug_print_hand(test_hand);
 			}*/
-
-			card deck[52];
-			create_deck(deck);
 			
-			char path[50];
-			get_filename_for_card(path, deck[31]);
-			bitmap_result bmp = debug_load_bitmap(path);
-			// bitmap_result bmp = debug_load_bitmap("c:/projects/native_poker/assets/structured_art.bmp");
-
-			// load_card_bitmaps(deck);
-
-			// char *filename = "c:/projects/native_poker/assets/continue.bmp";
-			// global_assets.bitmaps = &debug_load_bitmap(filename);
+			/* HFONT CreateFontA(
+				int    cHeight,
+				int    cWidth,
+				int    cEscapement,
+				int    cOrientation,
+				int    cWeight,
+				DWORD  bItalic,
+				DWORD  bUnderline,
+				DWORD  bStrikeOut,
+				DWORD  iCharSet,
+				DWORD  iOutPrecision,
+				DWORD  iClipPrecision,
+				DWORD  iQuality,
+				DWORD  iPitchAndFamily,
+				LPCSTR pszFaceName
+				); */
+			
+			HFONT font_handle = CreateFontA(0, 0, 0, 0, 0, 0, 0, 0,
+				                            DEFAULT_CHARSET, OUT_CHARACTER_PRECIS, CLIP_CHARACTER_PRECIS,
+											ANTIALIASED_QUALITY, DEFAULT_PITCH, 0);
+				
+			if (font_handle) {
+				SetTextColor(device_context, 0x000000);
+				SetBkColor(device_context, 0xFFFFFF);
+				
+				SendMessage(window_handle, WM_SETFONT, (WPARAM)font_handle, 1);
+			} else {
+				OutputDebugStringA("Could not create the font handle.");
+			}
+			
+			create_deck(G_STATE.deck.cards);
+			
+			// Set first one to null so we can index into the array using the hand rank enum values
+			hand_rank_image null_hrank_img;
+			null_hrank_img = {};
+			global_assets.hrank_images[0] = null_hrank_img;
+			for (int i = 1; i <= 9; i++) {
+				hand_rank_image hrank_img = {};
+				
+				char *filename = get_hand_rank_filename((hand_rank)i);
+				hrank_img.bmp = debug_load_bitmap(filename);
+				
+				global_assets.hrank_images[i] = hrank_img;
+			}
+			
+			POINT pnt;
+			pnt.x = 500;
+			pnt.y = 250;
+			
+			POINT pnt_arr[1];
+			pnt_arr[0] = pnt;
+			
+			int dp_result = DPtoLP(device_context, pnt_arr, 1);
+			
+			G_STATE.text_pos.x = pnt_arr[0].x;
+			G_STATE.text_pos.y = pnt_arr[0].y;
+			
+			for (int i = 0; i < 52; i++) {
+				char path[50];
+				get_filename_for_card(path, G_STATE.deck.cards[i]);
+				bitmap_result bmp = debug_load_bitmap(path);
+				
+				card_image c_image = {};
+				c_image.bmp = bmp;
+				strcpy(c_image.path, (const char *)path);
+				
+				OutputDebugStringA("c_image path:\n");
+				OutputDebugStringA(c_image.path);
+				
+				global_assets.card_images[i] = c_image;
+			}
 			
 			while (!should_quit) {
 				MSG msg;
@@ -676,12 +858,12 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 					DispatchMessageA(&msg);
 				}
 				
-				debug_paint_window_red();
-				debug_render_bitmap(bmp);
+				debug_paint_window(0xA83232);
+				// debug_render_bitmap(bmp);
 
-				update_and_render(&global_buffer, &global_assets);
+				update_and_render(&G_STATE, &global_buffer, &global_assets, device_context);
 				
-				window_dimension dimension = get_window_dimension(window);
+				window_dimension dimension = get_window_dimension(window_handle);
 				display_buffer_in_window(device_context, dimension);
 			}
 		} else {
