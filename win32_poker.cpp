@@ -1,7 +1,6 @@
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
 #include <string.h>
 
@@ -574,31 +573,6 @@ void load_card_bitmaps(card* deck) {
 	}
 }
 
-void debug_render_bitmap(bitmap_result bmp) {
-	int width = bmp.info_header->biWidth;
-	int height = bmp.info_header->biHeight;
-
-	unsigned char *dest_row = (unsigned char *)global_buffer.memory;
-
-	// NOTE: We do this calculation on the source row because our bitmaps are bottom up,
-	// whereas our window is top-down. So we must start at the bottom of the source bitmap.
-	unsigned char *source_row = (unsigned char *)(bmp.pixels + ((bmp.stride / 4) * (height - 1)));
-
-	for (int y = 0; y < height; y++) {
-		unsigned int *dest = (unsigned int *)dest_row;
-		unsigned int *source = (unsigned int *)source_row;
-
-		for (int x = 0; x < width; x++) {
-			*dest = *source;
-			dest++;
-			source++;
-		}
-
-		dest_row += global_buffer.pitch;
-		source_row -= bmp.stride;
-	}
-}
-
 void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_result bmp) {
 	int width = bmp.info_header->biWidth;
 	int height = bmp.info_header->biHeight;
@@ -625,8 +599,6 @@ void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_res
 }
 
 void update_and_render(game_state *G_STATE, win32_offscreen_buffer *buffer, game_assets *assets, HDC device_context) {
-	// debug_paint_window(0xA83232);
-	
 	if (test_deck_empty(G_STATE->deck.cards)) {
 		create_deck(G_STATE->deck.cards);
 	}
@@ -660,22 +632,6 @@ void update_and_render(game_state *G_STATE, win32_offscreen_buffer *buffer, game
 	}
 	
 	render_bmp(750, 250, buffer, global_assets.hrank_images[G_STATE->ranks[0]].bmp);
-/*	
-	if (frame_counter >= 1200) {
-		hand_initialized = 0;
-		frame_counter = 0;
-	} else {
-		frame_counter++;
-	}
-*/
-	
-	// int current_x_pos = 0;
-	// int current_y_pos = 0;
-
-	// Render hand1
-	// for (int i = 0; i < 5; i++) {
-	//
-	// }
 }
 
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param) {
@@ -711,12 +667,6 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l
 			
 			window_dimension dimension = get_window_dimension(window);
 			display_buffer_in_window(device_context, dimension);
-			
-			// This has to be done here, unfortunately. Otherwise flickering (I think).
-			/* if (hand_initialized) {
-				char *rank_str = stringify_hand_rank(G_STATE.ranks[0]);
-				int txt_result = TextOutA(device_context, G_STATE.text_pos.x, G_STATE.text_pos.y, rank_str, strlen(rank_str));
-			} */
 			
 			OutputDebugStringA("WM_PAINT\n");
 
@@ -766,48 +716,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 			window_dimension dim = get_window_dimension(window_handle);
 			resize_dib_section(&global_buffer, dim.width, dim.height);
 			
-			/*srand(time(0));
-			
-			for (int i = 0; i < 10; i++) {
-				card test_hand[5];
-				test_hand_generator(test_hand, deck);
-				hand_rank r = evaluate_hand(test_hand);
-				
-				debug_print_hand_rank(r);
-				debug_print_hand(test_hand);
-			}*/
-			
-			/* HFONT CreateFontA(
-				int    cHeight,
-				int    cWidth,
-				int    cEscapement,
-				int    cOrientation,
-				int    cWeight,
-				DWORD  bItalic,
-				DWORD  bUnderline,
-				DWORD  bStrikeOut,
-				DWORD  iCharSet,
-				DWORD  iOutPrecision,
-				DWORD  iClipPrecision,
-				DWORD  iQuality,
-				DWORD  iPitchAndFamily,
-				LPCSTR pszFaceName
-				); */
-			
-			/* HFONT font_handle = CreateFontA(0, 0, 0, 0, 0, 0, 0, 0,
-				                            DEFAULT_CHARSET, OUT_CHARACTER_PRECIS, CLIP_CHARACTER_PRECIS,
-											ANTIALIASED_QUALITY, DEFAULT_PITCH, 0);
-				
-			if (font_handle) {
-				SetTextColor(device_context, 0x000000);
-				SetBkColor(device_context, 0xFFFFFF);
-				
-				SendMessage(window_handle, WM_SETFONT, (WPARAM)font_handle, 1);
-			} else {
-				OutputDebugStringA("Could not create the font handle.");
-			} */
-			
 			create_deck(G_STATE.deck.cards);
+			
+			// LOAD ASSETS
 			
 			// Set first one to null so we can index into the array using the hand rank enum values
 			hand_rank_image null_hrank_img;
@@ -849,6 +760,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 				global_assets.card_images[i] = c_image;
 			}
 			
+			// MESSAGE LOOP
 			while (!should_quit) {
 				MSG msg;
 				
@@ -875,15 +787,4 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 	} else {
 		OutputDebugStringA("ERROR: Unable to register the window class.");
 	}
-/*	
-	for (int i = 0; i < 10000; i++) {
-		card test_hand[5];
-		test_hand_generator(test_hand, deck);
-		evaluate_hand(test_hand);
-		
-		if (test_deck_empty(deck)) {
-			create_deck(deck);
-		}
-	}
-*/
 }
