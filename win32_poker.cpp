@@ -579,18 +579,24 @@ void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_res
 
 	unsigned char* dest_row = (unsigned char*)buffer->memory + (y_pos * buffer->pitch + x_pos);
 
-	// NOTE: We do this calculation on the source row because our bitmaps are bottom up,
-	// whereas our window is top-down. So we must start at the bottom of the source bitmap.
+	// NOTE: Doing this calculation on the source row because the bitmaps are bottom up,
+	// whereas the window is top-down. So must start at the bottom of the source bitmap,
+	// working left to right.
 	unsigned char* source_row = (unsigned char*)(bmp.pixels + ((bmp.stride / 4) * (height - 1)));
-
+	
 	for (int y = y_pos; y < y_pos + height; y++) {
-		unsigned int* dest = (unsigned int*)dest_row;
-		unsigned int* source = (unsigned int*)source_row;
-
+		unsigned char *dest = dest_row;
+		unsigned char *source = source_row;
+		
 		for (int x = x_pos; x < x_pos + width; x++) {
-			*dest = *source;
+			for (int i = 0; i < 3; i++) {
+				*dest = *source;
+				dest++;
+				source++;
+			}
+			
+			*dest = 0x00;
 			dest++;
-			source++;
 		}
 
 		dest_row += buffer->pitch;
@@ -625,8 +631,8 @@ void update_and_render(game_state *G_STATE, win32_offscreen_buffer *buffer, game
 			if (strcmp(global_assets.card_images[j].path, path) == 0) {
 				render_bmp(x, y, buffer, global_assets.card_images[j].bmp);
 				
-				x += global_assets.card_images[j].bmp.info_header->biWidth;
-				y += global_assets.card_images[j].bmp.info_header->biHeight;
+				x += (global_assets.card_images[j].bmp.info_header->biWidth) * 4;
+				// y += global_assets.card_images[j].bmp.info_header->biHeight;
 			}
 		}
 	}
