@@ -1,8 +1,6 @@
 #include <windows.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <time.h>
-#include <string.h>
 
 struct win32_offscreen_buffer {
 	BITMAPINFO info;
@@ -113,7 +111,6 @@ win32_offscreen_buffer global_buffer;
 game_assets global_assets;
 bool should_quit = false;
 unsigned char flicker = 0;  // BOOL
-// unsigned int frame_counter = 0;
 game_state G_STATE = {};
 
 HDC device_context;
@@ -425,12 +422,6 @@ bool test_deck_empty(card *deck) {
 	else return false;
 }
 
-uint32_t safe_truncate_uint64(uint64_t value) {
-	// assert(value <= 0xFFFFFFFF);
-	uint32_t result = (uint32_t)value;
-	return result;
-}
-
 void free_file_memory(void *memory) {
 	if (memory) {
 		VirtualFree(memory, 0, MEM_RELEASE);
@@ -445,7 +436,7 @@ read_file_result read_entire_file(LPCSTR filename) {
 	if (file_handle != INVALID_HANDLE_VALUE) {
 		LARGE_INTEGER file_size;
 		if(GetFileSizeEx(file_handle, &file_size)) {
-			uint32_t file_size32 = safe_truncate_uint64(file_size.QuadPart);
+			unsigned int file_size32 = (unsigned int)file_size.QuadPart;	// NOTE: Probably unsafe truncation here
 			result.contents = VirtualAlloc(0, file_size32, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 			
 			if (result.contents) {
@@ -533,8 +524,6 @@ bitmap_result debug_load_bitmap(char* filename) {
 	bmp_result.info_header = (BITMAPINFOHEADER *)(contents + 14);
 	bmp_result.pixels = (unsigned int *)(contents + bmp_result.file_header->bfOffBits);
 	bmp_result.stride = ((((bmp_result.info_header->biWidth * bmp_result.info_header->biBitCount) + 31) & ~31) >> 3);
-	// bmp_result.stride = 147;
-	// bmp_result.stride = bmp_result.info_header->biWidth * 3;
 
 	return bmp_result;
 }
@@ -577,16 +566,17 @@ void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_res
 	int width = bmp.info_header->biWidth;
 	int height = bmp.info_header->biHeight;
 
-	unsigned char* dest_row = (unsigned char*)buffer->memory + (y_pos * buffer->pitch + x_pos);
+	unsigned int *dest_row = (unsigned int *)buffer->memory;
+	dest_row += y_pos * (buffer->pitch / 4) + x_pos;
 
 	// NOTE: Doing this calculation on the source row because the bitmaps are bottom up,
 	// whereas the window is top-down. So must start at the bottom of the source bitmap,
 	// working left to right.
-	unsigned char* source_row = (unsigned char*)(bmp.pixels + ((bmp.stride / 4) * (height - 1)));
+	unsigned int *source_row = bmp.pixels + ((bmp.stride / 4) * (height - 1));
 	
 	for (int y = y_pos; y < y_pos + height; y++) {
-		unsigned char *dest = dest_row;
-		unsigned char *source = source_row;
+		unsigned char *dest = (unsigned char *)dest_row;
+		unsigned char *source = (unsigned char *)source_row;
 		
 		for (int x = x_pos; x < x_pos + width; x++) {
 			for (int i = 0; i < 3; i++) {
@@ -595,12 +585,12 @@ void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_res
 				source++;
 			}
 			
-			*dest = 0x00;
+			*dest = 0xFF;
 			dest++;
 		}
 
-		dest_row += buffer->pitch;
-		source_row -= bmp.stride;
+		dest_row += buffer->pitch / 4;
+		source_row -= bmp.stride / 4;
 	}
 }
 
@@ -631,8 +621,7 @@ void update_and_render(game_state *G_STATE, win32_offscreen_buffer *buffer, game
 			if (strcmp(global_assets.card_images[j].path, path) == 0) {
 				render_bmp(x, y, buffer, global_assets.card_images[j].bmp);
 				
-				x += (global_assets.card_images[j].bmp.info_header->biWidth) * 4;
-				// y += global_assets.card_images[j].bmp.info_header->biHeight;
+				x += (global_assets.card_images[j].bmp.info_header->biWidth);
 			}
 		}
 	}
