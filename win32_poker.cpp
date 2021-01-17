@@ -230,10 +230,7 @@ void render_bitmap(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_
 void render_character_bitmap(int x_pos, int y_pos, win32_offscreen_buffer *buffer, character_bitmap_result bmp) {
 	unsigned int *dest_row = (unsigned int *)buffer->memory;
 	dest_row += y_pos * (buffer->pitch / 4) + x_pos;
-
-	// NOTE: Doing this calculation on the source row because the bitmaps are bottom up,
-	// whereas the window is top-down. So must start at the bottom of the source bitmap,
-	// working left to right.
+	
 	unsigned char *source_row = bmp.pixels;
 	
 	for (int y = y_pos; y < y_pos + bmp.height; y++) {
