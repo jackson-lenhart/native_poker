@@ -1,6 +1,9 @@
 #include <windows.h>
 #include <stdio.h>
 
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+
 struct win32_offscreen_buffer {
 	BITMAPINFO info;
 	void *memory;
@@ -21,10 +24,17 @@ struct read_file_result {
 };
 
 struct bitmap_result {
-	BITMAPFILEHEADER *file_header;
-	BITMAPINFOHEADER *info_header;
+	int width;
+	int height;
+	int stride;
+	int bytes_per_pixel;
 	unsigned int *pixels;
-	unsigned int stride;
+};
+
+struct character_bitmap_result {
+	int width;
+	int height;
+	unsigned char *pixels;
 };
 
 struct card_image {
@@ -32,13 +42,9 @@ struct card_image {
 	char id[3];
 };
 
-struct hand_rank_image {
-	bitmap_result bmp;
-};
-
 struct game_assets {
 	card_image card_images[52];
-	hand_rank_image hrank_images[10];
+	character_bitmap_result character_bitmaps[512];
 };
 
 struct coordinate {
@@ -51,6 +57,9 @@ bool should_quit = false;
 
 win32_offscreen_buffer global_buffer;
 game_assets global_assets;
+
+unsigned int charset_size = 62;
+char *charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 // These are to be used for for loading the .bmp files
 char suit_chars[4] = { 'h', 'd', 'c', 's' };
@@ -151,13 +160,33 @@ bitmap_result debug_load_bitmap(char* filename) {
 	read_file_result file_result = read_entire_file(filename);
 	unsigned char *contents = (unsigned char *)file_result.contents;
 
-	bmp_result.file_header = (BITMAPFILEHEADER *)contents;
-	bmp_result.info_header = (BITMAPINFOHEADER *)(contents + 14);
-	bmp_result.pixels = (unsigned int *)(contents + bmp_result.file_header->bfOffBits);
-	bmp_result.stride = ((((bmp_result.info_header->biWidth * bmp_result.info_header->biBitCount) + 31) & ~31) >> 3);
+	BITMAPFILEHEADER *file_header = (BITMAPFILEHEADER *)contents;
+	BITMAPINFOHEADER *info_header = (BITMAPINFOHEADER *)(contents + 14);  // We are assuming file header takes 14 bytes.
+
+	bmp_result.width = info_header->biWidth;
+	bmp_result.height = info_header->biHeight;
+	bmp_result.stride = ((((info_header->biWidth * info_header->biBitCount) + 31) & ~31) >> 3);
+	bmp_result.bytes_per_pixel = info_header->biBitCount / 8;
+	bmp_result.pixels = (unsigned int *)(contents + file_header->bfOffBits);
 
 	return bmp_result;
 }
+
+bitmap_result debug_parse_bitmap(unsigned char *raw_bitmap_memory) {
+	bitmap_result bmp_result = {};
+	
+	BITMAPFILEHEADER *file_header = (BITMAPFILEHEADER *)raw_bitmap_memory;
+	BITMAPINFOHEADER *info_header = (BITMAPINFOHEADER *)(raw_bitmap_memory + 14);  // We are assuming file header takes 14 bytes.
+
+	bmp_result.width = info_header->biWidth;
+	bmp_result.height = info_header->biHeight;
+	bmp_result.stride = ((((info_header->biWidth * info_header->biBitCount) + 31) & ~31) >> 3);
+	bmp_result.bytes_per_pixel = info_header->biBitCount / 8;
+	bmp_result.pixels = (unsigned int *)(raw_bitmap_memory + file_header->bfOffBits);
+
+	return bmp_result;
+}
+	
 
 void debug_paint_window(unsigned int color) {
 	unsigned int *pixel = (unsigned int *)global_buffer.memory; 
@@ -169,23 +198,20 @@ void debug_paint_window(unsigned int color) {
 	}
 }
 
-void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_result bmp) {
-	int width = bmp.info_header->biWidth;
-	int height = bmp.info_header->biHeight;
-
+void render_bitmap(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_result bmp) {
 	unsigned int *dest_row = (unsigned int *)buffer->memory;
 	dest_row += y_pos * (buffer->pitch / 4) + x_pos;
 
 	// NOTE: Doing this calculation on the source row because the bitmaps are bottom up,
 	// whereas the window is top-down. So must start at the bottom of the source bitmap,
 	// working left to right.
-	unsigned int *source_row = bmp.pixels + ((bmp.stride / 4) * (height - 1));
+	unsigned int *source_row = bmp.pixels + ((bmp.stride / 4) * (bmp.height - 1));
 	
-	for (int y = y_pos; y < y_pos + height; y++) {
+	for (int y = y_pos; y < y_pos + bmp.height; y++) {
 		unsigned char *dest = (unsigned char *)dest_row;
 		unsigned char *source = (unsigned char *)source_row;
 		
-		for (int x = x_pos; x < x_pos + width; x++) {
+		for (int x = x_pos; x < x_pos + bmp.width; x++) {
 			for (int i = 0; i < 3; i++) {
 				*dest = *source;
 				dest++;
@@ -198,6 +224,31 @@ void render_bmp(int x_pos, int y_pos, win32_offscreen_buffer *buffer, bitmap_res
 
 		dest_row += buffer->pitch / 4;
 		source_row -= bmp.stride / 4;
+	}
+}
+
+void render_character_bitmap(int x_pos, int y_pos, win32_offscreen_buffer *buffer, character_bitmap_result bmp) {
+	unsigned int *dest_row = (unsigned int *)buffer->memory;
+	dest_row += y_pos * (buffer->pitch / 4) + x_pos;
+
+	// NOTE: Doing this calculation on the source row because the bitmaps are bottom up,
+	// whereas the window is top-down. So must start at the bottom of the source bitmap,
+	// working left to right.
+	unsigned char *source_row = bmp.pixels;
+	
+	for (int y = y_pos; y < y_pos + bmp.height; y++) {
+		unsigned int *dest = dest_row;
+		unsigned char *source = (unsigned char *)source_row;
+		
+		for (int x = x_pos; x < x_pos + bmp.width; x++) {
+			unsigned char alpha = *source;
+			*dest = (alpha << 24) | (alpha << 16) | (alpha << 8) | (alpha << 0);
+			dest++;
+			source++;
+		}
+
+		dest_row += buffer->pitch / 4;
+		source_row += bmp.width;
 	}
 }
 
@@ -285,21 +336,23 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 			window_dimension dim = get_window_dimension(window_handle);
 			resize_dib_section(&global_buffer, dim.width, dim.height);
 			
-			// create_deck(G_STATE.deck.cards);
-			
 			// LOAD ASSETS
 			
-			// Set first one to null so we can index into the array using the hand rank enum values
-			hand_rank_image null_hrank_img;
-			null_hrank_img = {};
-			global_assets.hrank_images[0] = null_hrank_img;
-			for (int i = 1; i <= 9; i++) {
-				hand_rank_image hrank_img = {};
-				
-				char *filename = get_hand_rank_filename((hand_rank)i);
-				hrank_img.bmp = debug_load_bitmap(filename);
-				
-				global_assets.hrank_images[i] = hrank_img;
+			stbtt_fontinfo font_info;
+			
+			read_file_result ttf_file;
+			ttf_file = read_entire_file("c:/windows/fonts/arial.ttf");
+
+			stbtt_InitFont(&font_info, (unsigned char *)ttf_file.contents, stbtt_GetFontOffsetForIndex((unsigned char *)ttf_file.contents, 0));
+			
+			for (int i = 0; i < charset_size; i++) {
+				int font_width;
+				int font_height;
+				unsigned char *char_bitmap = stbtt_GetCodepointBitmap(&font_info, 0, stbtt_ScaleForPixelHeight(&font_info, 128.0f), charset[i], &font_width, &font_height, 0, 0);
+
+				global_assets.character_bitmaps[charset[i]].width = font_width;
+				global_assets.character_bitmaps[charset[i]].height = font_height;
+				global_assets.character_bitmaps[charset[i]].pixels = char_bitmap;
 			}
 			
 			int asset_index = 0;

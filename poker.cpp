@@ -180,40 +180,6 @@ void debug_print_hand_rank(hand_rank rank) {
 	}
 }
 
-char *get_hand_rank_filename(hand_rank rank) {
-	switch (rank) {
-		case StraightFlush:
-			return "c:/projects/native_poker/assets/straight-flush.bmp";
-			break;
-		case Quads:
-			return "c:/projects/native_poker/assets/quads.bmp";
-			break;
-		case FullHouse:
-			return "c:/projects/native_poker/assets/full-house.bmp";
-			break;
-		case Flush:
-			return "c:/projects/native_poker/assets/flush.bmp";
-			break;
-		case Straight:
-			return "c:/projects/native_poker/assets/straight.bmp";
-			break;
-		case ThreeOfAKind:
-			return "c:/projects/native_poker/assets/three-of-a-kind.bmp";
-			break;
-		case TwoPair:
-			return "c:/projects/native_poker/assets/two-pair.bmp";
-			break;
-		case OnePair:
-			return "c:/projects/native_poker/assets/one-pair.bmp";
-			break;
-		case HighCard:
-			return "c:/projects/native_poker/assets/high-card.bmp";
-			break;
-		default:
-			return "c:/projects/native_poker/assets/invalid-hand-rank.bmp";
-	}
-}
-
 char* stringify_hand_rank(hand_rank rank) {
 	switch (rank) {
 		case StraightFlush:
@@ -244,7 +210,7 @@ char* stringify_hand_rank(hand_rank rank) {
 			return "HighCard";
 			break;
 		default:
-			return "Invalid hand rank.";
+			return "INVALID";
 	}
 }
 
@@ -414,12 +380,18 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets) {
 		
 		for (int j = 0; j < 52; j++) {
 			if (strcmp(global_assets.card_images[j].id, id) == 0) {
-				render_bmp(x, y, buffer, global_assets.card_images[j].bmp);
+				render_bitmap(x, y, buffer, global_assets.card_images[j].bmp);
 				
-				x += (global_assets.card_images[j].bmp.info_header->biWidth);
+				x += (global_assets.card_images[j].bmp.width);
 			}
 		}
 	}
 	
-	render_bmp(750, 250, buffer, global_assets.hrank_images[G_STATE.ranks[0]].bmp);
+	char *text_to_print = stringify_hand_rank(G_STATE.ranks[0]);
+	int text_pos_x = 300;
+	
+	for (int i = 0; i < strlen(text_to_print); i++) {
+		render_character_bitmap(text_pos_x, 400, buffer, global_assets.character_bitmaps[text_to_print[i]]);
+		text_pos_x += global_assets.character_bitmaps[text_to_print[i]].width;
+	}
 }
