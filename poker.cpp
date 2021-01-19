@@ -5,12 +5,12 @@ struct card {
 	char suit;
 	bool removed_from_deck;
 };
-
+/*
 struct hand {
 	card cards[5];
 	unsigned char folded;  // BOOL
 };
-
+*/
 struct deck_info {
 	card cards[52];
 };
@@ -35,37 +35,36 @@ enum hand_rank {
 	HighCard       = 9
 };
 
+struct player {
+	int stack;
+	card hand[2];
+	bool folded;
+};
+
 struct game_state {
-	hand hands[2];
+	player players[2];
 	deck_info deck;
 //	coordinate text_pos;
-	hand_status status;
+	hand_status h_status;
 	hand_rank ranks[2];
 	int flags;
 	char bet_input[32];
+	int current_big_blind_index;
+	int pot;
+	int action_index;
 };
-
-/*
-struct player {
-	unsigned int stack;
-	card hand[2];
-};
-
-struct game_state {
-	hand_status status;
-	player players[2];
-	card board[5];
-};*/
 
 // FLAGS
 int HAND_INITIALIZED = 1 << 0;
 int DECK_CREATED = 1 << 1;
+int GAME_INITIALIZED = 1 << 2;
 
 // GLOBALS
-game_state G_STATE = {};
 char *suits = "hdcs";
 int sorted_wheel_values[5] = { 2, 3, 4, 5, 14 };
 // int proper_wheel_values[5] = { 1, 2, 3, 4, 5  };
+
+game_state G_STATE = {};
 
 card extract_random_card(card *deck) {
 	int selector = rand() % 52;
@@ -83,12 +82,11 @@ card extract_random_card(card *deck) {
 	return c;
 }
 
-void test_hand_generator(card *hand, card *deck) {
-	for (int i = 0; i < 5; i++) {
-		hand[i] = extract_random_card(deck);
-	}
+void hand_generator(card *hand, card *deck) {
+	hand[0] = extract_random_card(deck);
+	hand[1] = extract_random_card(deck);
 }
-
+/*
 void debug_print_hand(card *hand) {
 	for (int i = 0; i < 5; i++) {
 		char buffer[3];
@@ -97,7 +95,7 @@ void debug_print_hand(card *hand) {
 	}
 	OutputDebugStringA("\n");
 }
-
+*/
 void swap(card *hand, int i, int j) {
 	card temp = hand[i];
 	hand[i] = hand[j];
@@ -115,7 +113,7 @@ void sort_hand(card *hand) {
 }
 
 // Input hand is expected to be sorted.
-void aces_high_unless_wheel(card* hand) {
+void aces_high_unless_wheel(card *hand) {
 	bool is_wheel = true;
 	for (int i = 0; i < 5; i++) {
 		if (hand[i].value != sorted_wheel_values[i]) {
@@ -336,32 +334,72 @@ bool test_deck_empty(card *deck) {
 	else return false;
 }
 
+bool is_bet_input_empty(char *bet_input) {
+	int i = 0;
+	while (bet_input[i] != 0) i++;
+	if (i > 0) return false;
+	else return true;
+}
+
+void clear_bet_input() {
+	for (int i = 0; i < 32; i++) {
+		G_STATE.bet_input[i] = 0;
+	}
+}
+
+void increment_h_status() {
+	int x = (int)G_STATE.h_status;
+	x++;
+	G_STATE.h_status = (hand_status)x;
+}
+
 void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyboard_input *k_input) {
-	if (k_input->digit_pressed > -1) {
-		char digit_str[2];
-		itoa(k_input->digit_pressed, digit_str, 10);
-		
-		int i = 0;
-		while (G_STATE.bet_input[i] != 0 && i < 32) {
-			i++;
-		}
-		
-		if (i < 32) {	// Do nothing if we iterated all the way through as that means the buffer is filled with chars.
-			G_STATE.bet_input[i] = digit_str[0];
-		}
-	} else if (k_input->backspace_pressed) {
-		int i = 0;
-		while (G_STATE.bet_input[i] != 0 && i < 32) {
-			i++;
-		}
-		
-		if (i > 0) {	// Do nothing if bet_input is empty
-			G_STATE.bet_input[i - 1] = 0;
+	if (G_STATE.h_status < Showdown) {
+		if (k_input->digit_pressed > -1) {
+			char digit_str[2];
+			itoa(k_input->digit_pressed, digit_str, 10);
+			
+			int i = 0;
+			while (G_STATE.bet_input[i] != 0 && i < 32) {
+				i++;
+			}
+			
+			if (i < 32) {	// Do nothing if we iterated all the way through as that means the buffer is filled with chars.
+				G_STATE.bet_input[i] = digit_str[0];
+			}
+		} else if (k_input->backspace_pressed) {
+			int i = 0;
+			while (G_STATE.bet_input[i] != 0 && i < 32) {
+				i++;
+			}
+			
+			if (i > 0) {	// Do nothing if bet_input is empty
+				G_STATE.bet_input[i - 1] = 0;
+			}
 		}
 	}
 	
 	if (k_input->return_pressed) {
-		G_STATE.flags &= ~HAND_INITIALIZED;
+		if (G_STATE.h_status == Showdown) {
+			G_STATE.flags &= ~HAND_INITIALIZED;
+			G_STATE.current_big_blind_index = 1 - G_STATE.current_big_blind_index;
+		} else if (G_STATE.players[0].stack <= 0 || G_STATE.players[1].stack <= 0) {
+			increment_h_status();
+		} else if (!is_bet_input_empty(G_STATE.bet_input)) {
+			int bet_amount = atoi(G_STATE.bet_input);
+			if (G_STATE.players[0].stack >= bet_amount) {
+				G_STATE.pot += bet_amount;
+				G_STATE.players[0].stack -= bet_amount;
+				
+				clear_bet_input();
+				
+				// TODO: AI response. For now CPU just calls every time...
+				G_STATE.pot += bet_amount;
+				G_STATE.players[1].stack -= bet_amount;
+				
+				increment_h_status();
+			}
+		}
 	}
 	
 	if (!(G_STATE.flags & DECK_CREATED)) {
@@ -373,34 +411,42 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 		create_deck(G_STATE.deck.cards);
 	}
 	
+	if (!(G_STATE.flags & GAME_INITIALIZED)) {
+		G_STATE.players[0].stack = 10000;
+		G_STATE.players[1].stack = 10000;
+		
+		G_STATE.flags |= GAME_INITIALIZED;
+	}
+	
 	if (!(G_STATE.flags & HAND_INITIALIZED)) {
 		srand(time(0));
 	
-		test_hand_generator(G_STATE.hands[0].cards, G_STATE.deck.cards);
-		test_hand_generator(G_STATE.hands[1].cards, G_STATE.deck.cards);
-		
-		G_STATE.ranks[0] = evaluate_hand(G_STATE.hands[0].cards);
-		debug_print_hand_rank(G_STATE.ranks[0]);
+		G_STATE.h_status = PreFlop;
+		G_STATE.pot = 150;
+		G_STATE.players[0].stack -= 50;
+		G_STATE.players[1].stack -= 100;	// CPU is just always big blind for now.
+	
+		hand_generator(G_STATE.players[0].hand, G_STATE.deck.cards);
+		hand_generator(G_STATE.players[1].hand, G_STATE.deck.cards);
 		
 		G_STATE.flags |= HAND_INITIALIZED;
 	}
 	
 	int x = 0;
 	int y = 0;
-	for (int i = 0; i < 5; i++) {
-		char stringified_value[2];
+	for (int i = 0; i < 2; i++) {
+		char stringified_value[3];
 		
-		if (G_STATE.hands[0].cards[i].value < 10) {
-			sprintf(stringified_value, "0%d", G_STATE.hands[0].cards[i].value);
-		} else if (G_STATE.hands[0].cards[i].value == 14) {
-			stringified_value[0] = '0';
-			stringified_value[1] = '1';
+		if (G_STATE.players[0].hand[i].value < 10) {
+			sprintf(stringified_value, "0%d", G_STATE.players[0].hand[i].value);
+		} else if (G_STATE.players[0].hand[i].value == 14) {
+			sprintf(stringified_value, "0%d", 1);
 		} else {
-			sprintf(stringified_value, "%d", G_STATE.hands[0].cards[i].value);
+			sprintf(stringified_value, "%d", G_STATE.players[0].hand[i].value);
 		}
 		
 		char id[3];
-		sprintf(id, "%c%s", G_STATE.hands[0].cards[i].suit, stringified_value);
+		sprintf(id, "%c%s", G_STATE.players[0].hand[i].suit, stringified_value);
 		
 		for (int j = 0; j < 52; j++) {
 			if (strcmp(global_assets.card_images[j].id, id) == 0) {
@@ -411,19 +457,46 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 		}
 	}
 	
-	char *text_to_print = stringify_hand_rank(G_STATE.ranks[0]);
-	int text_pos_x = 300;
-	
-	for (int i = 0; i < strlen(text_to_print); i++) {
-		render_character_bitmap(text_pos_x, 400, buffer, global_assets.character_bitmaps[text_to_print[i]]);
-		text_pos_x += global_assets.character_bitmaps[text_to_print[i]].width;
+	int x1 = 700;
+	if (G_STATE.h_status < Showdown) {
+		render_bitmap(x1, y, buffer, global_assets.face_down_card_image);
+		x1 += global_assets.face_down_card_image.width;
+		render_bitmap(x1, y, buffer, global_assets.face_down_card_image);
+	} else {
+		for (int i = 0; i < 2; i++) {
+			char stringified_value[3];
+			
+			if (G_STATE.players[1].hand[i].value < 10) {
+				sprintf(stringified_value, "0%d", G_STATE.players[1].hand[i].value);
+			} else if (G_STATE.players[1].hand[i].value == 14) {
+				sprintf(stringified_value, "0%d", 1);
+			} else {
+				sprintf(stringified_value, "%d", G_STATE.players[1].hand[i].value);
+			}
+			
+			char id[3];
+			sprintf(id, "%c%s", G_STATE.players[1].hand[i].suit, stringified_value);
+			
+			for (int j = 0; j < 52; j++) {
+				if (strcmp(global_assets.card_images[j].id, id) == 0) {
+					render_bitmap(x1, y, buffer, global_assets.card_images[j].bmp);
+					
+					x1 += (global_assets.card_images[j].bmp.width);
+				}
+			}
+		}
 	}
 	
-	int i = 0;
-	int x_pos = 500;
-	while (G_STATE.bet_input[i] != 0) {
-		render_character_bitmap(x_pos, 300, buffer, global_assets.character_bitmaps[G_STATE.bet_input[i]]);
-		x_pos += global_assets.character_bitmaps[G_STATE.bet_input[i]].width;
-		i++;
-	}
+	char stack_str1[16];
+	itoa(G_STATE.players[0].stack, stack_str1, 10);
+	debug_render_string(200, 50, buffer, stack_str1);
+	
+	char stack_str2[16];
+	itoa(G_STATE.players[1].stack, stack_str2, 10);
+	debug_render_string(900, 50, buffer, stack_str2);
+	
+	char pot_str[16];
+	itoa(G_STATE.pot, pot_str, 10);
+	debug_render_string(500, 500, buffer, pot_str);
+	debug_render_string(500, 150, buffer, G_STATE.bet_input);
 }

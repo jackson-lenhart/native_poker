@@ -43,6 +43,7 @@ struct card_image {
 };
 
 struct game_assets {
+	bitmap_result face_down_card_image;
 	card_image card_images[52];
 	character_bitmap_result character_bitmaps[512];
 };
@@ -255,6 +256,14 @@ void render_character_bitmap(int x_pos, int y_pos, win32_offscreen_buffer *buffe
 	}
 }
 
+void debug_render_string(int starting_x_pos, int y_pos, win32_offscreen_buffer *buffer, char *str) {
+	int x = starting_x_pos;
+	for (int i = 0; i < strlen(str); i++) {
+		render_character_bitmap(x, y_pos, buffer, global_assets.character_bitmaps[str[i]]);
+		x += global_assets.character_bitmaps[str[i]].width;
+	}
+}
+
 #include "poker.cpp"
 
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l_param) {
@@ -385,6 +394,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 					asset_index++;
 				}
 			}
+			
+			global_assets.face_down_card_image = debug_load_bitmap("c:/projects/native_poker/card-BMPs/b1fv.bmp");
 			
 			// MESSAGE LOOP
 			while (!should_quit) {
