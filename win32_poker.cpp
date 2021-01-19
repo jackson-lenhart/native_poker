@@ -47,6 +47,12 @@ struct game_assets {
 	character_bitmap_result character_bitmaps[512];
 };
 
+struct keyboard_input {
+	int digit_pressed;
+	unsigned char backspace_pressed;	// BOOL
+	unsigned char return_pressed;		// BOOL
+};
+
 struct coordinate {
 	int x;
 	int y;
@@ -57,6 +63,7 @@ bool should_quit = false;
 
 win32_offscreen_buffer global_buffer;
 game_assets global_assets;
+keyboard_input k_input;
 
 unsigned int charset_size = 62;
 char *charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -171,7 +178,7 @@ bitmap_result debug_load_bitmap(char* filename) {
 
 	return bmp_result;
 }
-
+/*
 bitmap_result debug_parse_bitmap(unsigned char *raw_bitmap_memory) {
 	bitmap_result bmp_result = {};
 	
@@ -186,8 +193,7 @@ bitmap_result debug_parse_bitmap(unsigned char *raw_bitmap_memory) {
 
 	return bmp_result;
 }
-	
-
+*/
 void debug_paint_window(unsigned int color) {
 	unsigned int *pixel = (unsigned int *)global_buffer.memory; 
 	
@@ -300,7 +306,19 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w_param, LPARAM l
 			OutputDebugStringA("KEY DOWN\n");
 			
 			if (w_param == VK_RETURN) {
-				reset_hand();
+				k_input.return_pressed = 1;;
+			}
+			
+			if (w_param >= 0x30 && w_param <= 0x39) {
+				k_input.digit_pressed = w_param % 0x30;	// This will give us just the digit
+			}
+			
+			if (w_param >= 0x60 && w_param <= 0x69) {	// Number pad
+				k_input.digit_pressed = w_param % 0x60;
+			}
+			
+			if (w_param == VK_BACK) {
+				k_input.backspace_pressed = 1;
 			}
 		}
 		break;
@@ -370,6 +388,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 			
 			// MESSAGE LOOP
 			while (!should_quit) {
+				k_input = {};
+				k_input.digit_pressed = -1;	// This is the default value. We can't use 0 since that is a valid value here
+				
 				MSG msg;
 				
 				while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
@@ -384,7 +405,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_
 				debug_paint_window(0xA83232);
 				// debug_render_bitmap(bmp);
 
-				update_and_render(&global_buffer, &global_assets);
+				update_and_render(&global_buffer, &global_assets, &k_input);
 				
 				window_dimension dimension = get_window_dimension(window_handle);
 				display_buffer_in_window(device_context, dimension);

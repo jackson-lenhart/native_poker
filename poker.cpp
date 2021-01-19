@@ -42,6 +42,7 @@ struct game_state {
 	hand_status status;
 	hand_rank ranks[2];
 	int flags;
+	char bet_input[32];
 };
 
 /*
@@ -335,17 +336,40 @@ bool test_deck_empty(card *deck) {
 	else return false;
 }
 
-void reset_hand() {
-	G_STATE.flags &= ~HAND_INITIALIZED;
-}
-
-void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets) {
+void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyboard_input *k_input) {
+	if (k_input->digit_pressed > -1) {
+		char digit_str[2];
+		itoa(k_input->digit_pressed, digit_str, 10);
+		
+		int i = 0;
+		while (G_STATE.bet_input[i] != 0 && i < 32) {
+			i++;
+		}
+		
+		if (i < 32) {	// Do nothing if we iterated all the way through as that means the buffer is filled with chars.
+			G_STATE.bet_input[i] = digit_str[0];
+		}
+	} else if (k_input->backspace_pressed) {
+		int i = 0;
+		while (G_STATE.bet_input[i] != 0 && i < 32) {
+			i++;
+		}
+		
+		if (i > 0) {	// Do nothing if bet_input is empty
+			G_STATE.bet_input[i - 1] = 0;
+		}
+	}
+	
+	if (k_input->return_pressed) {
+		G_STATE.flags &= ~HAND_INITIALIZED;
+	}
+	
 	if (!(G_STATE.flags & DECK_CREATED)) {
 		create_deck(G_STATE.deck.cards);
 		G_STATE.flags |= DECK_CREATED;
 	}
 	
-	if (test_deck_empty(G_STATE.deck.cards) || !(G_STATE.flags & DECK_CREATED)) {
+	if (test_deck_empty(G_STATE.deck.cards)) {
 		create_deck(G_STATE.deck.cards);
 	}
 	
@@ -393,5 +417,13 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets) {
 	for (int i = 0; i < strlen(text_to_print); i++) {
 		render_character_bitmap(text_pos_x, 400, buffer, global_assets.character_bitmaps[text_to_print[i]]);
 		text_pos_x += global_assets.character_bitmaps[text_to_print[i]].width;
+	}
+	
+	int i = 0;
+	int x_pos = 500;
+	while (G_STATE.bet_input[i] != 0) {
+		render_character_bitmap(x_pos, 300, buffer, global_assets.character_bitmaps[G_STATE.bet_input[i]]);
+		x_pos += global_assets.character_bitmaps[G_STATE.bet_input[i]].width;
+		i++;
 	}
 }
