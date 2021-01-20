@@ -43,6 +43,7 @@ struct player {
 
 struct game_state {
 	player players[2];
+	card board[5];
 	deck_info deck;
 //	coordinate text_pos;
 	hand_status h_status;
@@ -353,6 +354,30 @@ void increment_h_status() {
 	G_STATE.h_status = (hand_status)x;
 }
 
+void get_card_image_id(card c, char *id_buffer) {
+	char stringified_value[3];
+		
+	if (c.value < 10) {
+		sprintf(stringified_value, "0%d", c.value);
+	} else if (c.value == 14) {
+		sprintf(stringified_value, "0%d", 1);
+	} else {
+		sprintf(stringified_value, "%d", c.value);
+	}
+	
+	sprintf(id_buffer, "%c%s", c.suit, stringified_value);
+}
+
+int get_card_asset_index(char *id) {
+	for (int i = 0; i < 52; i++) {
+		if (strcmp(global_assets.card_images[i].id, id) == 0) {
+			return i;
+		}
+	}
+	
+	return 0;
+}
+
 void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyboard_input *k_input) {
 	if (G_STATE.h_status < Showdown) {
 		if (k_input->digit_pressed > -1) {
@@ -397,6 +422,18 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 				G_STATE.pot += bet_amount;
 				G_STATE.players[1].stack -= bet_amount;
 				
+				if (G_STATE.h_status == PreFlop) {
+					G_STATE.board[0] = extract_random_card(G_STATE.deck.cards);
+					G_STATE.board[1] = extract_random_card(G_STATE.deck.cards);
+					G_STATE.board[2] = extract_random_card(G_STATE.deck.cards);
+				} else if (G_STATE.h_status == Flop) {
+					G_STATE.board[3] = extract_random_card(G_STATE.deck.cards);
+				} else if (G_STATE.h_status == Turn) {
+					G_STATE.board[4] = extract_random_card(G_STATE.deck.cards);
+				} else if (G_STATE.h_status == River) {
+					// Do nothing, this will increment to Showdown.
+				}
+				
 				increment_h_status();
 			}
 		}
@@ -432,60 +469,53 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 		G_STATE.flags |= HAND_INITIALIZED;
 	}
 	
-	int x = 0;
-	int y = 0;
 	for (int i = 0; i < 2; i++) {
-		char stringified_value[3];
+		char id[3];
+		get_card_image_id(G_STATE.players[0].hand[i], id);
+		int asset_index = get_card_asset_index(id);
 		
-		if (G_STATE.players[0].hand[i].value < 10) {
-			sprintf(stringified_value, "0%d", G_STATE.players[0].hand[i].value);
-		} else if (G_STATE.players[0].hand[i].value == 14) {
-			sprintf(stringified_value, "0%d", 1);
-		} else {
-			sprintf(stringified_value, "%d", G_STATE.players[0].hand[i].value);
+		render_bitmap(71 * i, 0, buffer, global_assets.card_images[asset_index].bmp);
+	}
+
+	if (G_STATE.h_status < Showdown) {
+		render_bitmap(700, 0, buffer, global_assets.face_down_card_image);
+		render_bitmap(700 + 71, 0, buffer, global_assets.face_down_card_image);
+	} else {
+		for (int i = 0; i < 2; i++) {
+			char id[3];
+			get_card_image_id(G_STATE.players[1].hand[i], id);
+			int asset_index = get_card_asset_index(id);
+			
+			render_bitmap(700 + (i * 71), 0, buffer, global_assets.card_images[asset_index].bmp);
+		}
+	}
+	
+	if (G_STATE.h_status >= Flop) {
+		for (int i = 0; i < 3; i++) {
+			char id[3];
+			get_card_image_id(G_STATE.board[i], id);
+			int asset_index = get_card_asset_index(id);
+			
+			render_bitmap(200 + (71 * i), 200, buffer, global_assets.card_images[asset_index].bmp);
 		}
 		
+		if (G_STATE.h_status >= Turn) {
 		char id[3];
-		sprintf(id, "%c%s", G_STATE.players[0].hand[i].suit, stringified_value);
-		
-		for (int j = 0; j < 52; j++) {
-			if (strcmp(global_assets.card_images[j].id, id) == 0) {
-				render_bitmap(x, y, buffer, global_assets.card_images[j].bmp);
+			get_card_image_id(G_STATE.board[3], id);
+			int asset_index = get_card_asset_index(id);
+			
+			render_bitmap(200 + (71 * 3), 200, buffer, global_assets.card_images[asset_index].bmp);
+			
+			if (G_STATE.h_status >= River) {
+				get_card_image_id(G_STATE.board[4], id);
+				int asset_index = get_card_asset_index(id);
 				
-				x += (global_assets.card_images[j].bmp.width);
+				render_bitmap(200 + (71 * 4), 200, buffer, global_assets.card_images[asset_index].bmp);
 			}
 		}
 	}
 	
-	int x1 = 700;
-	if (G_STATE.h_status < Showdown) {
-		render_bitmap(x1, y, buffer, global_assets.face_down_card_image);
-		x1 += global_assets.face_down_card_image.width;
-		render_bitmap(x1, y, buffer, global_assets.face_down_card_image);
-	} else {
-		for (int i = 0; i < 2; i++) {
-			char stringified_value[3];
-			
-			if (G_STATE.players[1].hand[i].value < 10) {
-				sprintf(stringified_value, "0%d", G_STATE.players[1].hand[i].value);
-			} else if (G_STATE.players[1].hand[i].value == 14) {
-				sprintf(stringified_value, "0%d", 1);
-			} else {
-				sprintf(stringified_value, "%d", G_STATE.players[1].hand[i].value);
-			}
-			
-			char id[3];
-			sprintf(id, "%c%s", G_STATE.players[1].hand[i].suit, stringified_value);
-			
-			for (int j = 0; j < 52; j++) {
-				if (strcmp(global_assets.card_images[j].id, id) == 0) {
-					render_bitmap(x1, y, buffer, global_assets.card_images[j].bmp);
-					
-					x1 += (global_assets.card_images[j].bmp.width);
-				}
-			}
-		}
-	}
+	
 	
 	char stack_str1[16];
 	itoa(G_STATE.players[0].stack, stack_str1, 10);
@@ -497,6 +527,6 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 	
 	char pot_str[16];
 	itoa(G_STATE.pot, pot_str, 10);
-	debug_render_string(500, 500, buffer, pot_str);
+	debug_render_string(500, 450, buffer, pot_str);
 	debug_render_string(500, 150, buffer, G_STATE.bet_input);
 }
