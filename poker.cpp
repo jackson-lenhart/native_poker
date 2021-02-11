@@ -53,6 +53,7 @@ struct game_state {
 	int current_big_blind_index;
 	int pot;
 	int action_index;
+	int winner_index;
 };
 
 // FLAGS
@@ -66,6 +67,22 @@ int sorted_wheel_values[5] = { 2, 3, 4, 5, 14 };
 // int proper_wheel_values[5] = { 1, 2, 3, 4, 5  };
 
 game_state G_STATE = {};
+
+void swap_cards(card *card1, card *card2) {
+	card tmp = *card1;
+	*card1 = *card2;
+	*card2 = tmp;
+}
+
+void sort_combined_hand(card *combined_hand) {
+	for (int i = 0; i < 6; i++) {
+		for (int j = 0; j < 6 - i; j++) {
+			if (combined_hand[j].value > combined_hand[j + 1].value) {
+				swap_cards(&combined_hand[j], &combined_hand[j + 1]);
+			}
+		}
+	}
+}
 
 card extract_random_card(card *deck) {
 	int selector = rand() % 52;
@@ -214,8 +231,9 @@ char* stringify_hand_rank(hand_rank rank) {
 	}
 }
 
+// Assumes sorted hand
 hand_rank evaluate_hand(card *hand) {
-	sort_hand(hand);
+	// sort_hand(hand);
 	aces_high_unless_wheel(hand);
 	
 	bool is_flush = true;
@@ -309,6 +327,63 @@ hand_rank evaluate_hand(card *hand) {
 	return HighCard;
 }
 
+// Assumes hands are 5 sorted cards  (TODO: Assert)
+// Returns 1 if hand1 wins, 2 if hand2 wins, and 0 if tie.
+int resolve_tie(card *hand1, card *hand2, hand_rank rank) {
+	if (rank == Straight || rank == StraightFlush) {
+		if (hand1[4].value > hand2[4].value) {
+			return 1;
+		} else if (hand1[4].value < hand2[4].value) {
+			return 2;
+		} else {
+			return 0;
+		}
+	}
+	
+	if (rank == Flush) {
+		for (int i = 4; i >= 0; i--) {
+			if (hand1[i].value > hand2[i].value) {
+				return 1;
+			} else if (hand1[i].value < hand2[i].value) {
+				return 2;
+			}
+		}
+		
+		return 0;
+	}
+	
+	if (rank == Quads) {
+		card quad_card1 = hand1[0];
+		card kicker1 = hand1[4];
+		if (hand1[1].value != quad_card1.value) {
+			quad_card1 = hand1[1];
+			kicker1 = hand1[0];
+		}
+		
+		card quad_card2 = hand2[0];
+		card kicker2 = hand2[4];
+		if (hand2[1].value != quad_card2.value) {
+			quad_card2 = hand2[1];
+			kicker2 = hand2[0];
+		}
+		
+		if (quad_card1.value > quad_card2.value) {
+			return 1;
+		} else if (quad_card1.value < quad_card2.value) {
+			return 2;
+		} else {
+			if (kicker1.value > kicker2.value) {
+				return 1;
+			} else if (kicker1.value < kicker2.value) {
+				return 2;
+			} else {
+				return 0;
+			}
+		}
+	}
+}
+	
+
 void create_deck(card *deck) {
 	int i = 0;
 	for (int j = 0; j < 4; j++) {
@@ -378,6 +453,55 @@ int get_card_asset_index(char *id) {
 	return 0;
 }
 
+struct best_possible_hand_result {
+	card *hand_ptr;
+	hand_rank rank;
+};
+
+// Expects sorted combined hand
+best_possible_hand_result get_best_possible_hand(card *combined_hand) {
+	const int NUM_POSSIBLE_HANDS = 21;	// Total subsets of 5 possible in 7 cards (hand + board)
+	card possible_hands[5 * NUM_POSSIBLE_HANDS];
+	for (int h = 0; h < NUM_POSSIBLE_HANDS; h++) {
+		for (int i = 0; i < 3; i++) {
+			for (int j = i + 1; j < 4; j++) {
+				for (int k = j + 1; k < 5; k++) {
+					for (int l = k + 1; l < 6; l++) {
+						for (int m = l + 1; m < 7; m++) {
+							possible_hands[h]     = combined_hand[i];
+							possible_hands[h + 1] = combined_hand[j];
+							possible_hands[h + 2] = combined_hand[k];
+							possible_hands[h + 3] = combined_hand[l];
+							possible_hands[h + 4] = combined_hand[m];
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	hand_rank best_hand_rank = evaluate_hand(possible_hands);
+	card *best_hand_ptr = possible_hands;
+	int i = 1;
+	card *curr = possible_hands + 5;
+	while (i < NUM_POSSIBLE_HANDS) {
+		hand_rank curr_hand_rank = evaluate_hand(curr);
+		if (curr_hand_rank < best_hand_rank) {
+			best_hand_rank = curr_hand_rank;
+			best_hand_ptr = curr;
+		}
+		
+		curr += 5;
+		i++;
+	}
+	
+	best_possible_hand_result result;
+	result.hand_ptr = best_hand_ptr;
+	result.rank = best_hand_rank;
+	
+	return result;
+}
+
 void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyboard_input *k_input) {
 	if (G_STATE.h_status < Showdown) {
 		if (k_input->digit_pressed > -1) {
@@ -431,7 +555,56 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 				} else if (G_STATE.h_status == Turn) {
 					G_STATE.board[4] = extract_random_card(G_STATE.deck.cards);
 				} else if (G_STATE.h_status == River) {
-					// Do nothing, this will increment to Showdown.
+					// TODO: Find out actual 5 card hand to use for each player given the player's 2 card hand
+					// plus the board (all 5 card permutations of 7 cards) and solve issue with sorting (make a copy... figure
+					// out what the function should return).
+					
+					card combined_hand1[7];
+					combined_hand1[0] = G_STATE.players[0].hand[0];
+					combined_hand1[1] = G_STATE.players[0].hand[1];
+					
+					for (int i = 2; i < 7; i++) {
+						combined_hand1[i] = G_STATE.board[i - 2];
+					}
+					
+					card combined_hand2[7];
+					combined_hand2[0] = G_STATE.players[1].hand[0];
+					combined_hand2[1] = G_STATE.players[1].hand[1];
+					
+					for (int i = 2; i < 7; i++) {
+						combined_hand2[i] = G_STATE.board[i - 2];
+					}
+					
+					sort_combined_hand(combined_hand1);
+					sort_combined_hand(combined_hand2);
+					
+					best_possible_hand_result best_hand_result1 = get_best_possible_hand(combined_hand1);
+					best_possible_hand_result best_hand_result2 = get_best_possible_hand(combined_hand2);
+					
+					if (best_hand_result1.rank < best_hand_result2.rank) {
+						G_STATE.players[0].stack += G_STATE.pot;
+						G_STATE.winner_index = 0;
+					} else if (best_hand_result2.rank < best_hand_result1.rank) {
+						G_STATE.players[1].stack += G_STATE.pot;
+						G_STATE.winner_index = 1;
+					} else {
+						G_STATE.winner_index = -1;	// Tie
+					}
+					
+					/*
+					G_STATE.ranks[0] = evaluate_hand(G_STATE.players[0].hand);
+					G_STATE.ranks[1] = evaluate_hand(G_STATE.players[1].hand);
+					
+					if (G_STATE.ranks[0] < G_STATE.ranks[1]) {
+						G_STATE.players[0].stack += G_STATE.pot;
+						G_STATE.winner_index = 0;
+					} else if (G_STATE.ranks[1] < G_STATE.ranks[0]) {
+						G_STATE.players[1].stack += G_STATE.pot;
+						G_STATE.winner_index = 1;
+					} else {
+						G_STATE.winner_index = -1;	// Tie
+					}
+					*/
 				}
 				
 				increment_h_status();
@@ -487,6 +660,15 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 			int asset_index = get_card_asset_index(id);
 			
 			render_bitmap(700 + (i * 71), 0, buffer, global_assets.card_images[asset_index].bmp);
+			
+			if (G_STATE.winner_index == 0) {
+				debug_render_string(600, 300, buffer, "Player");
+			} else if (G_STATE.winner_index == 1) {
+				debug_render_string(600, 300, buffer, "CPU");
+			} else {
+				debug_render_string(600, 300, buffer, "TIE");
+			}
+
 		}
 	}
 	
