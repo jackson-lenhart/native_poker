@@ -659,15 +659,15 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 	}
 
 	if (G_STATE.h_status < Showdown) {
-		render_bitmap(700, 0, buffer, global_assets.face_down_card_image);
-		render_bitmap(700 + 71, 0, buffer, global_assets.face_down_card_image);
+		render_bitmap(650, 0, buffer, global_assets.face_down_card_image);
+		render_bitmap(650 + 71, 0, buffer, global_assets.face_down_card_image);
 	} else {
 		for (int i = 0; i < 2; i++) {
 			char id[3];
 			get_card_image_id(G_STATE.players[1].hand[i], id);
 			int asset_index = get_card_asset_index(id);
 
-			render_bitmap(700 + (i * 71), 0, buffer, global_assets.card_images[asset_index].bmp);
+			render_bitmap(650 + (i * 71), 0, buffer, global_assets.card_images[asset_index].bmp);
 
 			if (G_STATE.winner_index == 0) {
 				debug_render_string(600, 300, buffer, "Player");
@@ -713,7 +713,7 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 
 	char stack_str2[16];
 	itoa(G_STATE.players[1].stack, stack_str2, 10);
-	debug_render_string(900, 50, buffer, stack_str2);
+	debug_render_string(850, 50, buffer, stack_str2);
 
 	char pot_str[16];
 	itoa(G_STATE.pot, pot_str, 10);
