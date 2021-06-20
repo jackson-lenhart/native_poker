@@ -593,6 +593,10 @@ void update_and_render(win32_offscreen_buffer *buffer, game_assets *assets, keyb
 						G_STATE.winner_index = 1;
 					} else {
 						G_STATE.winner_index = -1;	// Tie
+
+						G_STATE.players[0].stack += G_STATE.pot / 2;
+						G_STATE.players[1].stack += G_STATE.pot / 2;
+						// @Fix: create round robin for "odd chip"
 					}
 
 					/*
