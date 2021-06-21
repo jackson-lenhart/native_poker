@@ -464,20 +464,18 @@ best_possible_hand_result get_best_possible_hand(card *combined_hand) {
 	card possible_hands[5 * NUM_POSSIBLE_HANDS];
 
 	int h = 0;
-	while (h < 5 * NUM_POSSIBLE_HANDS) {
-		for (int i = 0; i < 3; i++) {
-			for (int j = i + 1; j < 4; j++) {
-				for (int k = j + 1; k < 5; k++) {
-					for (int l = k + 1; l < 6; l++) {
-						for (int m = l + 1; m < 7; m++) {
-							possible_hands[h]     = combined_hand[i];
-							possible_hands[h + 1] = combined_hand[j];
-							possible_hands[h + 2] = combined_hand[k];
-							possible_hands[h + 3] = combined_hand[l];
-							possible_hands[h + 4] = combined_hand[m];
+	for (int i = 0; i < 3; i++) {
+		for (int j = i + 1; j < 4; j++) {
+			for (int k = j + 1; k < 5; k++) {
+				for (int l = k + 1; l < 6; l++) {
+					for (int m = l + 1; m < 7; m++) {
+						possible_hands[h]     = combined_hand[i];
+						possible_hands[h + 1] = combined_hand[j];
+						possible_hands[h + 2] = combined_hand[k];
+						possible_hands[h + 3] = combined_hand[l];
+						possible_hands[h + 4] = combined_hand[m];
 
-							h += 5;
-						}
+						h += 5;
 					}
 				}
 			}
